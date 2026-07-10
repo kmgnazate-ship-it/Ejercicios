@@ -1,0 +1,299 @@
+App.py
+import os
+from flask import Flask, render_template, request, redirect, url_for
+from psycopg2 import sql
+from database import get_connection
+import requests
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+app = Flask(__name__, template_folder=os.path.join(BASE_DIR, "templates"))
+
+TABLAS = {"actividades": "actividades", "personales": "actividades_personales"}
+USUARIO_GH = "kmgnazate-ship-it"
+ENLACE_DESTACADO = "https://github.com/kmgnazate-ship-it/Ejercicios/tree/main/Ejercios%20de%20Orientacion"
+
+
+def tabla_valida(nombre):
+    return TABLAS.get(nombre, TABLAS["actividades"])
+
+
+def ejecutar(tabla_real, plantilla_sql, params=None, fetch=None):
+    """Ejecuta SELECT/INSERT/UPDATE/DELETE de forma segura sobre 'tabla_real'."""
+    conexion = get_connection()
+    cursor = conexion.cursor()
+    consulta = sql.SQL(plantilla_sql).format(tabla=sql.Identifier(tabla_real))
+    cursor.execute(consulta, params or ())
+    resultado = None
+    if fetch == "all":
+        resultado = cursor.fetchall()
+    elif fetch == "one":
+        resultado = cursor.fetchone()
+    else:
+        conexion.commit()
+    cursor.close()
+    conexion.close()
+    return resultado
+
+
+@app.route("/")
+def index():
+    tabla_param = request.args.get("tabla", "actividades")
+    tabla_real = tabla_valida(tabla_param)
+    editar_id = request.args.get("editar")
+    error, registros, registro_editar = None, [], None
+    try:
+        registros = ejecutar(tabla_real, "SELECT id, mensaje, actividad, estado FROM {tabla} ORDER BY id", fetch="all")
+        if editar_id:
+            registro_editar = ejecutar(tabla_real, "SELECT id, mensaje, actividad, estado FROM {tabla} WHERE id=%s", (editar_id,), fetch="one")
+    except Exception as e:
+        error = str(e)
+    return render_template("index.html", registros=registros, tabla=tabla_param,
+                            registro_editar=registro_editar, error=error)
+
+
+@app.route("/agregar", methods=["POST"])
+def agregar():
+    tabla_param = request.form.get("tabla", "actividades")
+    try:
+        ejecutar(tabla_valida(tabla_param), "INSERT INTO {tabla} (mensaje, actividad, estado) VALUES (%s, %s, %s)",
+                 (request.form.get("mensaje", ""), request.form.get("actividad", ""), request.form.get("estado", "Pendiente")))
+    except Exception as e:
+        print("Error al agregar:", e)
+    return redirect(url_for("index", tabla=tabla_param))
+
+
+@app.route("/actualizar/<int:id>", methods=["POST"])
+def actualizar(id):
+    tabla_param = request.form.get("tabla", "actividades")
+    try:
+        ejecutar(tabla_valida(tabla_param), "UPDATE {tabla} SET mensaje=%s, actividad=%s, estado=%s WHERE id=%s",
+                 (request.form.get("mensaje", ""), request.form.get("actividad", ""), request.form.get("estado", "Pendiente"), id))
+    except Exception as e:
+        print("Error al actualizar:", e)
+    return redirect(url_for("index", tabla=tabla_param))
+
+
+@app.route("/eliminar/<int:id>")
+def eliminar(id):
+    tabla_param = request.args.get("tabla", "actividades")
+    try:
+        ejecutar(tabla_valida(tabla_param), "DELETE FROM {tabla} WHERE id=%s", (id,))
+    except Exception as e:
+        print("Error al eliminar:", e)
+    return redirect(url_for("index", tabla=tabla_param))
+
+
+@app.route("/hola")
+def hola():
+    return "¡Hola! Bienvenido al proyecto de Kevin 👋"
+
+
+@app.route("/github")
+def github():
+    tabla_param = request.args.get("tabla", "actividades")
+    repos, error, registros = [], None, []
+    try:
+        r = requests.get(f"https://api.github.com/users/{USUARIO_GH}/repos", timeout=5)
+        if r.status_code == 200:
+            repos = [{"nombre": x["name"], "url": x["html_url"]} for x in r.json()]
+        else:
+            error = "No se pudo obtener los repositorios de GitHub"
+    except Exception as e:
+        error = str(e)
+    try:
+        registros = ejecutar(tabla_valida(tabla_param), "SELECT id, mensaje, actividad, estado FROM {tabla} ORDER BY id", fetch="all")
+    except Exception as e:
+        error = error or str(e)
+    return render_template("github.html", repos=repos, error=error, registros=registros,
+                            tabla=tabla_param, usuario=USUARIO_GH, enlace_destacado=ENLACE_DESTACADO)
+
+if __name__ == "__main__":
+    app.run(debug=True)
+
+
+database.py
+
+import psycopg2
+ def get_connection():
+    """
+    Crea y devuelve una conexión a la base de datos Poo.
+    Ajusta 'password' si en tu pgAdmin es distinta.
+    """
+    return psycopg2.connect(
+        host="localhost",
+        database="Poo",
+        user="postgres",
+        password="12345",
+        port="5433"
+)
+
+En la carpeta o extension templates
+
+index.html
+
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Proyecto de Kevin</title>
+<style>
+body{background:#0d0d0d;color:#eee;font-family:Segoe UI,Arial;margin:0}
+header{background:linear-gradient(90deg,#b30000,#4d0000);padding:25px;text-align:center;box-shadow:0 3px 10px #000}
+header h1{margin:0;font-size:28px;letter-spacing:1px}
+header p{margin:5px 0 0;opacity:.8}
+nav{text-align:center;margin:18px}
+nav a{color:#fff;background:#b30000;padding:9px 18px;margin:4px;text-decoration:none;border-radius:20px;font-size:14px;display:inline-block;transition:.2s}
+nav a:hover{background:#ff1a1a}
+nav a.activo{background:#fff;color:#b30000;font-weight:bold}
+.contenedor{width:92%;max-width:900px;margin:0 auto}
+table{width:100%;border-collapse:collapse;margin:20px 0;box-shadow:0 0 10px #000}
+th{background:#b30000;padding:10px}
+td{border:1px solid #330000;padding:10px;text-align:center;background:#1a1a1a}
+tr:hover td{background:#241010}
+td a{color:#ff8080;margin:0 4px;text-decoration:none;font-weight:bold}
+.card{background:#1a1a1a;border:1px solid #b30000;border-radius:10px;padding:18px;margin-bottom:25px}
+.card input,.card select{width:95%;padding:9px;margin:6px 0;border-radius:6px;border:1px solid #b30000;background:#0d0d0d;color:#fff}
+.estado{padding:4px 10px;border-radius:12px;font-size:12px;font-weight:bold;display:inline-block}
+.estado-pendiente{background:#5c1a1a;color:#ffb3b3}
+.estado-progreso{background:#5c4b1a;color:#ffe0a3}
+.estado-completado{background:#1a5c2a;color:#b3ffc2}
+.card button{background:#b30000;color:#fff;border:none;padding:9px 20px;border-radius:6px;cursor:pointer;font-weight:bold}
+.card button:hover{background:#ff1a1a}
+h2{color:#ff6666;text-align:center}
+.error{width:92%;max-width:900px;margin:15px auto;background:#3a0000;border:1px solid red;padding:12px;color:#ffb3b3;border-radius:6px}
+</style>
+</head>
+<body>
+
+<header>
+<h1>Proyecto de Kevin</h1>
+<p>Sistema de Actividades con Flask y PostgreSQL</p>
+</header>
+
+<nav>
+<a class="{{ 'activo' if tabla=='actividades' else '' }}" href="/?tabla=actividades">Tabla Actividades</a>
+<a class="{{ 'activo' if tabla=='personales' else '' }}" href="/?tabla=personales">Tabla Personales</a>
+<a href="/github">GitHub</a>
+</nav>
+
+{% if error %}<div class="error"><strong>Error:</strong> {{ error }}</div>{% endif %}
+
+<div class="contenedor">
+<table>
+<tr><th>ID</th><th>Mensaje</th><th>Actividad</th><th>Estado</th><th>Acciones</th></tr>
+{% for r in registros %}
+<tr>
+<td>{{ r[0] }}</td><td>{{ r[1] }}</td><td>{{ r[2] }}</td>
+<td><span class="estado {{ 'estado-completado' if r[3]=='Completado' else ('estado-progreso' if r[3]=='En progreso' else 'estado-pendiente') }}">{{ r[3] }}</span></td>
+<td><a href="/?tabla={{ tabla }}&editar={{ r[0] }}">Editar</a>
+<a href="/eliminar/{{ r[0] }}?tabla={{ tabla }}" onclick="return confirm('¿Eliminar?');">Eliminar</a></td>
+</tr>
+{% endfor %}
+</table>
+
+<h2>{{ 'Editar registro' if registro_editar else 'Agregar nuevo registro' }}</h2>
+
+{% if registro_editar %}
+<form class="card" action="/actualizar/{{ registro_editar[0] }}" method="POST">
+<input type="hidden" name="tabla" value="{{ tabla }}">
+<input type="text" name="mensaje" value="{{ registro_editar[1] }}" required>
+<input type="text" name="actividad" value="{{ registro_editar[2] }}" required>
+<select name="estado">
+<option value="Pendiente" {{ 'selected' if registro_editar[3]=='Pendiente' else '' }}>Pendiente</option>
+<option value="En progreso" {{ 'selected' if registro_editar[3]=='En progreso' else '' }}>En progreso</option>
+<option value="Completado" {{ 'selected' if registro_editar[3]=='Completado' else '' }}>Completado</option>
+</select>
+<button type="submit">Actualizar</button>
+<a href="/?tabla={{ tabla }}" style="color:#ff8080">Cancelar</a>
+</form>
+{% else %}
+<form class="card" action="/agregar" method="POST">
+<input type="hidden" name="tabla" value="{{ tabla }}">
+<input type="text" name="mensaje" placeholder="Mensaje (ej: Viernes - Beca)" required>
+<input type="text" name="actividad" placeholder="Actividad" required>
+<select name="estado">
+<option value="Pendiente">Pendiente</option>
+<option value="En progreso">En progreso</option>
+<option value="Completado">Completado</option>
+</select>
+<button type="submit">Agregar</button>
+</form>
+{% endif %}
+</div>
+
+</body>
+</html>
+
+github.html
+
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Proyecto de Kevin - GitHub</title>
+<style>
+body{background:#0d0d0d;color:#eee;font-family:Segoe UI,Arial;margin:0}
+header{background:linear-gradient(90deg,#b30000,#4d0000);padding:25px;text-align:center;box-shadow:0 3px 10px #000}
+header h1{margin:0;font-size:28px}
+nav{text-align:center;margin:18px}
+nav a{color:#fff;background:#b30000;padding:9px 18px;margin:4px;text-decoration:none;border-radius:20px;font-size:14px;display:inline-block}
+nav a:hover{background:#ff1a1a}
+nav a.activo{background:#fff;color:#b30000;font-weight:bold}
+.contenedor{width:92%;max-width:900px;margin:0 auto}
+.destacado{background:#1a1a1a;border:2px solid #ff4d4d;border-radius:10px;padding:16px;text-align:center;margin:20px 0}
+.destacado a{color:#fff;background:#b30000;padding:10px 20px;border-radius:20px;text-decoration:none;font-weight:bold}
+.destacado a:hover{background:#ff1a1a}
+.repos{display:flex;flex-wrap:wrap;gap:12px;justify-content:center;margin:15px 0}
+.repos a{background:#1a1a1a;border:1px solid #b30000;color:#ff8080;padding:12px 18px;border-radius:8px;text-decoration:none;font-weight:bold;min-width:150px;text-align:center}
+.repos a:hover{background:#b30000;color:#fff}
+table{width:100%;border-collapse:collapse;margin:20px 0}
+th{background:#b30000;padding:10px}
+td{border:1px solid #330000;padding:10px;text-align:center;background:#1a1a1a}
+h2{color:#ff6666;text-align:center}
+.error{background:#3a0000;border:1px solid red;padding:12px;color:#ffb3b3;border-radius:6px;text-align:center;margin:15px 0}
+</style>
+</head>
+<body>
+
+<header>
+<h1>Proyecto de Kevin</h1>
+<p>Repositorios de {{ usuario }}</p>
+</header>
+
+<nav>
+<a href="/">Volver a Actividades</a>
+<a class="{{ 'activo' if tabla=='actividades' else '' }}" href="/github?tabla=actividades">Tabla Actividades</a>
+<a class="{{ 'activo' if tabla=='personales' else '' }}" href="/github?tabla=personales">Tabla Personales</a>
+</nav>
+
+<div class="contenedor">
+
+<div class="destacado">
+<p>Trabajo destacado: Ejercicios de Orientación a Objetos</p>
+<a href="{{ enlace_destacado }}" target="_blank">Ver código</a>
+</div>
+
+{% if error %}<div class="error">{{ error }}</div>{% endif %}
+
+<h2>Mis repositorios</h2>
+<div class="repos">
+{% for repo in repos %}
+<a href="{{ repo.url }}" target="_blank">{{ repo.nombre }}</a>
+{% endfor %}
+</div>
+
+<h2>Datos de la tabla seleccionada</h2>
+<table>
+<tr><th>ID</th><th>Mensaje</th><th>Actividad</th><th>Estado</th></tr>
+{% for r in registros %}
+<tr><td>{{ r[0] }}</td><td>{{ r[1] }}</td><td>{{ r[2] }}</td><td>{{ r[3] }}</td></tr>
+{% endfor %}
+</table>
+
+</div>
+</body>
+</html>
+
+
+
+
